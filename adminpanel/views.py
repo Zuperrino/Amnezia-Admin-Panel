@@ -6,10 +6,23 @@ import subprocess
 import psutil
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
+from collections import deque
+import threading
+import time
+from django.utils import translation
+import settings
 
 # Create your views here.
 
+def set_language_from_request(request):
+    lang = request.GET.get('lang')
+    if lang in dict(settings.LANGUAGES):
+        request.session[translation.LANGUAGE_SESSION_KEY] = lang
+        translation.activate(lang)
+
+# В начало каждого view (пример для login_view)
 def login_view(request):
+    set_language_from_request(request)
     if request.user.is_authenticated:
         return redirect('home')
     if request.method == 'POST':
@@ -18,8 +31,10 @@ def login_view(request):
         user = authenticate(request, username=username, password=password)
         if user is not None:
             login(request, user)
+            log_event('login', 'Вход в систему', user)
             return redirect('home')
         else:
+            log_event('login_fail', f'Неудачный вход: {username}')
             return render(request, 'login.html', {'error': 'Неверные данные для входа'})
     return render(request, 'login.html')
 
@@ -322,3 +337,62 @@ def server_control(request):
 @login_required
 def notifications(request):
     return render(request, 'notifications.html')
+
+# История метрик (храним последние 60 точек, ~3-5 минут)
+METRICS_HISTORY = deque(maxlen=60)
+METRICS_LOCK = threading.Lock()
+
+# История событий (храним последние 200 событий)
+EVENTS_HISTORY = deque(maxlen=200)
+EVENTS_LOCK = threading.Lock()
+
+# Утилита для логирования событий
+def log_event(event_type, message, user=None):
+    from datetime import datetime
+    with EVENTS_LOCK:
+        EVENTS_HISTORY.appendleft({
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'type': event_type,
+            'user': getattr(user, 'username', None) if user else None,
+            'message': message,
+        })
+
+# Фоновый сборщик метрик
+def collect_metrics():
+    while True:
+        data = {
+            'timestamp': int(time.time()),
+            'cpu': psutil.cpu_percent(),
+            'ram': psutil.virtual_memory().percent,
+            'disk': psutil.disk_usage('/').percent,
+            'net': psutil.net_io_counters().bytes_sent + psutil.net_io_counters().bytes_recv,
+        }
+        with METRICS_LOCK:
+            METRICS_HISTORY.append(data)
+        # Алерты
+        if data['cpu'] > 90:
+            log_event('alert', f'Высокая загрузка CPU: {data["cpu"]}%')
+        if data['ram'] > 90:
+            log_event('alert', f'Высокая загрузка RAM: {data["ram"]}%')
+        if data['disk'] > 95:
+            log_event('alert', f'Мало места на диске: {data["disk"]}%')
+        time.sleep(3)
+
+# Запускать сборщик только один раз
+if not hasattr(psutil, '_amnezia_metrics_started'):
+    threading.Thread(target=collect_metrics, daemon=True).start()
+    psutil._amnezia_metrics_started = True
+
+@csrf_exempt
+@login_required
+def metrics_history_api(request):
+    with METRICS_LOCK:
+        history = list(METRICS_HISTORY)
+    return JsonResponse({'history': history})
+
+@csrf_exempt
+@login_required
+def events_history_api(request):
+    with EVENTS_LOCK:
+        events = list(EVENTS_HISTORY)
+    return JsonResponse({'events': events})

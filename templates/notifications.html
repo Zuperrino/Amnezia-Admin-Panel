@@ -5,4 +5,46 @@
 <ul class="list-group">
     <!-- Здесь будут уведомления -->
 </ul>
+<h2>История событий и алертов</h2>
+<div class="mb-3">
+  <input type="text" id="eventSearch" class="form-control" placeholder="Поиск по событиям...">
+</div>
+<table class="table table-sm table-bordered" id="eventsTable">
+  <thead>
+    <tr>
+      <th>Время</th>
+      <th>Тип</th>
+      <th>Пользователь</th>
+      <th>Сообщение</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+<script>
+function fetchEvents() {
+  fetch('/api/events_history/')
+    .then(r => r.json())
+    .then(data => {
+      const tbody = document.querySelector('#eventsTable tbody');
+      tbody.innerHTML = '';
+      data.events.forEach(ev => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${ev.timestamp}</td><td>${ev.type}</td><td>${ev.user||''}</td><td>${ev.message}</td>`;
+        tbody.appendChild(tr);
+      });
+      filterEvents();
+    });
+}
+function filterEvents() {
+  const val = document.getElementById('eventSearch').value.toLowerCase();
+  document.querySelectorAll('#eventsTable tbody tr').forEach(tr => {
+    tr.style.display = tr.innerText.toLowerCase().includes(val) ? '' : 'none';
+  });
+}
+document.addEventListener('DOMContentLoaded', function() {
+  fetchEvents();
+  setInterval(fetchEvents, 5000);
+  document.getElementById('eventSearch').addEventListener('input', filterEvents);
+});
+</script>
 {% endblock %} 

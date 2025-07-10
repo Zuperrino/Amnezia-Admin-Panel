@@ -5,7 +5,10 @@
 {% if error %}
 <div class="alert alert-danger">Ошибка: {{ error|linebreaksbr }}</div>
 {% endif %}
-<table class="table table-striped">
+<div class="mb-3">
+  <input type="text" id="userSearch" class="form-control" placeholder="Поиск по имени пользователя...">
+</div>
+<table class="table table-bordered" id="usersTable">
     <thead>
         <tr>
             <th>Тип</th>
@@ -27,4 +30,12 @@
         {% endfor %}
     </tbody>
 </table>
+<script>
+document.getElementById('userSearch').addEventListener('input', function() {
+  const val = this.value.toLowerCase();
+  document.querySelectorAll('#usersTable tbody tr').forEach(tr => {
+    tr.style.display = tr.innerText.toLowerCase().includes(val) ? '' : 'none';
+  });
+});
+</script>
 {% endblock %} 

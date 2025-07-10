@@ -33,6 +33,9 @@
     </tbody>
 </table>
 <h4>Контейнеры</h4>
+<div class="mb-3">
+  <input type="text" id="containerSearch" class="form-control" placeholder="Поиск по контейнерам...">
+</div>
 <table class="table table-bordered" id="containers-table">
     <thead>
         <tr>
@@ -45,6 +48,24 @@
         <tr><td colspan="3">Загрузка...</td></tr>
     </tbody>
 </table>
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<div class="row">
+  <div class="col-md-6 mb-4">
+    <canvas id="cpuChart"></canvas>
+  </div>
+  <div class="col-md-6 mb-4">
+    <canvas id="ramChart"></canvas>
+  </div>
+  <div class="col-md-6 mb-4">
+    <canvas id="diskChart"></canvas>
+  </div>
+  <div class="col-md-6 mb-4">
+    <canvas id="netChart"></canvas>
+  </div>
+</div>
+
 <script>
 function formatBytes(bytes) {
     if (bytes === 0 || bytes === undefined) return '0 B';
@@ -133,7 +154,72 @@ async function updateMonitoring() {
         document.getElementById('monitoring-error').innerHTML = `<div class='alert alert-danger'>Ошибка обновления: ${e}</div>`;
     }
 }
+let cpuChart, ramChart, diskChart, netChart;
+
+function createChart(ctx, label, color) {
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: label,
+        data: [],
+        borderColor: color,
+        backgroundColor: color + '33',
+        fill: true,
+        tension: 0.2,
+      }]
+    },
+    options: {
+      scales: { x: { display: false }, y: { min: 0, max: 100 } },
+      plugins: { legend: { display: false } }
+    }
+  });
+}
+
+function updateCharts(history) {
+  const labels = history.map(x => new Date(x.timestamp * 1000).toLocaleTimeString());
+  cpuChart.data.labels = labels;
+  cpuChart.data.datasets[0].data = history.map(x => x.cpu);
+  cpuChart.update();
+  ramChart.data.labels = labels;
+  ramChart.data.datasets[0].data = history.map(x => x.ram);
+  ramChart.update();
+  diskChart.data.labels = labels;
+  diskChart.data.datasets[0].data = history.map(x => x.disk);
+  diskChart.update();
+  // Трафик — в мегабайтах, относительный прирост
+  let net = history.map((x, i, arr) => i === 0 ? 0 : (x.net - arr[0].net) / 1024 / 1024);
+  netChart.data.labels = labels;
+  netChart.data.datasets[0].data = net;
+  netChart.update();
+}
+
+function fetchMetrics() {
+  fetch('/api/metrics_history/')
+    .then(r => r.json())
+    .then(data => updateCharts(data.history));
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  cpuChart = createChart(document.getElementById('cpuChart'), 'CPU %', 'rgba(54,162,235,1)');
+  ramChart = createChart(document.getElementById('ramChart'), 'RAM %', 'rgba(255,206,86,1)');
+  diskChart = createChart(document.getElementById('diskChart'), 'Disk %', 'rgba(255,99,132,1)');
+  netChart = createChart(document.getElementById('netChart'), 'Net MB', 'rgba(75,192,192,1)');
+  fetchMetrics();
+  setInterval(fetchMetrics, 3000);
+});
+
 setInterval(updateMonitoring, 3000);
 updateMonitoring();
+
+if (document.getElementById('containerSearch')) {
+  document.getElementById('containerSearch').addEventListener('input', function() {
+    const val = this.value.toLowerCase();
+    document.querySelectorAll('#containers-table tbody tr').forEach(tr => {
+      tr.style.display = tr.innerText.toLowerCase().includes(val) ? '' : 'none';
+    });
+  });
+}
 </script>
 {% endblock %} 

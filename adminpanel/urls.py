@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from django.contrib.auth import views as auth_views
+from .views import metrics_history_api
 
 urlpatterns = [
     path('login/', views.login_view, name='login'),
@@ -11,4 +12,6 @@ urlpatterns = [
     path('notifications/', views.notifications, name='notifications'),
     path('logout/', auth_views.LogoutView.as_view(next_page='login'), name='logout'),
     path('api/monitoring/', views.monitoring_api, name='monitoring_api'),
+    path('api/metrics_history/', metrics_history_api, name='metrics_history_api'),
+    path('api/events_history/', views.events_history_api, name='events_history_api'),
 ] 
