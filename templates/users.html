@@ -1,34 +1,33 @@
 {% extends 'base.html' %}
 {% block title %}Пользователи{% endblock %}
 {% block content %}
-<h2>Пользователи VPN</h2>
-{% if error %}
-<div class="alert alert-danger">Ошибка: {{ error|linebreaksbr }}</div>
-{% endif %}
+<h2>Пользователи</h2>
 <div class="mb-3">
   <input type="text" id="userSearch" class="form-control" placeholder="Поиск по имени пользователя...">
 </div>
 <table class="table table-bordered" id="usersTable">
-    <thead>
-        <tr>
-            <th>Тип</th>
-            <th>Имя</th>
-            <th>Public Key / ID</th>
-            <th>Allowed IPs / Flow</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for u in users %}
-        <tr>
-            <td>{{ u.type }}</td>
-            <td>{{ u.name }}</td>
-            <td>{{ u.public_key }}</td>
-            <td>{{ u.allowed_ips }}</td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="4">Нет пользователей</td></tr>
-        {% endfor %}
-    </tbody>
+  <thead>
+    <tr>
+      <th>Тип</th>
+      <th>Имя</th>
+      <th>Public Key / ID</th>
+      <th>Allowed IPs / Flow</th>
+      <th>RX</th>
+      <th>TX</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for user in users %}
+    <tr>
+      <td>{{ user.type }}</td>
+      <td>{{ user.name }}</td>
+      <td>{{ user.public_key }}</td>
+      <td>{{ user.allowed_ips }}</td>
+      <td>{{ user.rx }}</td>
+      <td>{{ user.tx }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
 </table>
 <script>
 document.getElementById('userSearch').addEventListener('input', function() {

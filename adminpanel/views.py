@@ -10,7 +10,7 @@ from collections import deque
 import threading
 import time
 from django.utils import translation
-import settings
+from django.conf import settings
 
 # Create your views here.
 
@@ -163,7 +163,80 @@ def users(request):
             errors.append('Контейнер XRay не найден')
     except Exception as e:
         errors.append(f'XRay: {e}')
-    return render(request, 'users.html', {'users': users, 'error': '\n'.join(errors) if errors else None})
+    # --- Получаем трафик по пользователям ---
+    traffic_stats = []
+    try:
+        # WireGuard
+        wg_clients_json = subprocess.run([
+            'docker', 'exec', 'amnezia-wireguard', 'cat', '/opt/amnezia/wireguard/clientsTable'
+        ], capture_output=True, text=True, check=True).stdout
+        import json as _json
+        for entry in _json.loads(wg_clients_json):
+            name = entry['userData'].get('clientName', '')
+            rx = entry['userData'].get('dataReceived', 0)
+            tx = entry['userData'].get('dataSent', 0)
+            traffic_stats.append({'type': 'WireGuard', 'name': name, 'rx': rx, 'tx': tx})
+    except Exception:
+        pass
+    try:
+        # AmneziaWG
+        awg_clients_json = subprocess.run([
+            'docker', 'exec', 'amnezia-awg', 'cat', '/opt/amnezia/awg/clientsTable'
+        ], capture_output=True, text=True, check=True).stdout
+        for entry in _json.loads(awg_clients_json):
+            name = entry['userData'].get('clientName', '')
+            rx = entry['userData'].get('dataReceived', 0)
+            tx = entry['userData'].get('dataSent', 0)
+            traffic_stats.append({'type': 'AmneziaWG', 'name': name, 'rx': rx, 'tx': tx})
+    except Exception:
+        pass
+    try:
+        # XRay
+        xray_clients_json = subprocess.run([
+            'docker', 'exec', 'amnezia-xray', 'cat', '/opt/amnezia/xray/clientsTable'
+        ], capture_output=True, text=True, check=True).stdout
+        for entry in _json.loads(xray_clients_json):
+            name = entry['userData'].get('clientName', '')
+            rx = entry['userData'].get('dataReceived', 0)
+            tx = entry['userData'].get('dataSent', 0)
+            traffic_stats.append({'type': 'XRay', 'name': name, 'rx': rx, 'tx': tx})
+    except Exception:
+        pass
+    # --- Формируем список пользователей с трафиком ---
+    def format_bytes(val):
+        if val is None or str(val).strip() == '' or str(val) == '—':
+            return '0 B'
+        # Ensure val is a number
+        try:
+            val = float(val)
+        except (ValueError, TypeError):
+            return '0 B'
+        k = 1024
+        sizes = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
+        i = 0
+        while val >= k and i < len(sizes)-1:
+            val /= k
+            i += 1
+        return f"{val:.2f} {sizes[i]}"
+    users_with_traffic = []
+    for u in users:
+        # ищем трафик по имени и типу
+        t = next((t for t in traffic_stats if t['name'] == u['name'] and t['type'] == u['type']), None)
+        print(f"User: {u['name']} Type: {u['type']} Traffic: {t}")  # DEBUG
+        def safe_traffic(val):
+            if isinstance(val, str) and any(x in val for x in ['B', 'KiB', 'MiB', 'GiB', 'TiB']):
+                return val
+            try:
+                return format_bytes(val)
+            except Exception:
+                return '—'
+        rx = safe_traffic(t['rx']) if t and t.get('rx') is not None else '—'
+        tx = safe_traffic(t['tx']) if t and t.get('tx') is not None else '—'
+        u2 = u.copy()
+        u2['rx'] = rx
+        u2['tx'] = tx
+        users_with_traffic.append(u2)
+    return render(request, 'users.html', {'users': users_with_traffic, 'error': '\n'.join(errors) if errors else None})
 
 @login_required
 def monitoring(request):
@@ -332,7 +405,21 @@ def monitoring_api(request):
 
 @login_required
 def server_control(request):
-    return render(request, 'server_control.html')
+    import subprocess
+    services = []
+    try:
+        result = subprocess.run([
+            'systemctl', '--type=service', '--state=running,exited,failed', '--no-pager', '--no-legend'
+        ], capture_output=True, text=True, check=True)
+        for line in result.stdout.strip().split('\n'):
+            if line:
+                parts = line.split()
+                name = parts[0]
+                status = 'Работает' if 'running' in parts else 'Остановлен'
+                services.append({'name': name, 'status': status})
+    except Exception as e:
+        pass
+    return render(request, 'server_control.html', {'services': services})
 
 @login_required
 def notifications(request):

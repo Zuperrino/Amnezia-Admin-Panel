@@ -1,10 +1,36 @@
 {% extends 'base.html' %}
-{% block title %}Управление сервером{% endblock %}
+{% block title %}Сервер{% endblock %}
 {% block content %}
 <h2>Управление сервером</h2>
-<div class="d-flex gap-2">
-    <button class="btn btn-success">Запустить</button>
-    <button class="btn btn-warning">Перезапустить</button>
-    <button class="btn btn-danger">Остановить</button>
+<div class="row">
+  <div class="col-md-6">
+    <div class="card mb-4">
+      <div class="card-body">
+        <h5 class="card-title">Сервисы</h5>
+        {% if services %}
+        <ul class="list-group">
+          {% for s in services %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            {{ s.name }}
+            {% if s.status == 'Работает' %}
+              <span class="badge bg-success">{{ s.status }}</span>
+            {% else %}
+              <span class="badge bg-danger">{{ s.status }}</span>
+            {% endif %}
+            <form method="post" action="/server/control/" class="d-inline ms-2">
+              {% csrf_token %}
+              <input type="hidden" name="service" value="{{ s.name }}">
+              <button type="submit" name="action" value="restart" class="btn btn-sm btn-warning">Перезапустить</button>
+              <button type="submit" name="action" value="stop" class="btn btn-sm btn-danger">Остановить</button>
+            </form>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="alert alert-info mt-4">Нет сервисов для отображения.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %} 

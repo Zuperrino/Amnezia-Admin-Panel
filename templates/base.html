@@ -1,11 +1,12 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="{{ LANGUAGE_CODE }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Amnezia Admin Panel{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'bootstrap.min.css' %}">
+    <meta name="csrf-token" content="{{ csrf_token }}">
 </head>
 <body class="bg-light" id="bodyRoot">
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
@@ -48,6 +49,7 @@
     {% block content %}{% endblock %}
 </div>
 <script src="{% static 'bootstrap.bundle.min.js' %}"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 function setTheme(dark) {
   const body = document.getElementById('bodyRoot');
@@ -72,6 +74,17 @@ document.addEventListener('DOMContentLoaded', function() {
     dark = !dark;
     setTheme(dark);
   };
+});
+// Переключение языка через cookie
+function setLang(lang) {
+  document.cookie = 'django_language=' + lang + ';path=/';
+  location.reload();
+}
+document.querySelectorAll('.dropdown-item').forEach(function(el) {
+  el.addEventListener('click', function(e) {
+    e.preventDefault();
+    setLang(this.getAttribute('href').split('=')[1]);
+  });
 });
 </script>
 </body>

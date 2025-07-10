@@ -1,225 +1,130 @@
 {% extends 'base.html' %}
 {% block title %}Мониторинг{% endblock %}
 {% block content %}
-<h2>Мониторинг</h2>
-<div id="monitoring-error"></div>
-<h4>Статистика сервера</h4>
-<ul class="list-group mb-4" id="server-stats">
-    <li class="list-group-item">CPU: <span id="cpu-val">—</span></li>
-    <li id="cpu-cores-list"></li>
-    <li class="list-group-item">RAM: <span id="ram-used">—</span> / <span id="ram-total">—</span> (<span id="ram-percent">—</span>%)
-        <div class="progress" style="height:20px; margin-top:5px;">
-            <div id="ram-bar" class="progress-bar bg-info" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+<h2>Мониторинг ресурсов</h2>
+<div class="row">
+  <div class="col-md-6 col-lg-4 mb-4">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">CPU</h5>
+        <div class="progress" style="height: 24px;">
+          <div id="cpu-bar" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
         </div>
-    </li>
-    <li class="list-group-item">Диск: <span id="disk-used">—</span> / <span id="disk-total">—</span> (<span id="disk-percent">—</span>%)
-        <div class="progress" style="height:20px; margin-top:5px;">
-            <div id="disk-bar" class="progress-bar bg-warning" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-lg-4 mb-4">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">RAM</h5>
+        <div class="progress" style="height: 24px;">
+          <div id="ram-bar" class="progress-bar bg-info" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
         </div>
-    </li>
-</ul>
-<h4>Трафик по клиентам</h4>
-<table class="table table-bordered mb-4" id="traffic-table">
-    <thead>
-        <tr>
-            <th>Протокол</th>
-            <th>Имя</th>
-            <th>RX (принято)</th>
-            <th>TX (отправлено)</th>
-        </tr>
-    </thead>
-    <tbody id="traffic-body">
-        <tr><td colspan="4">Загрузка...</td></tr>
-    </tbody>
-</table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-lg-4 mb-4">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Disk</h5>
+        <div class="progress" style="height: 24px;">
+          <div id="disk-bar" class="progress-bar bg-warning" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-lg-4 mb-4">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Net</h5>
+        <div class="progress" style="height: 24px;">
+          <div id="net-bar" class="progress-bar bg-success" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0 МБ/c</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 <h4>Контейнеры</h4>
 <div class="mb-3">
   <input type="text" id="containerSearch" class="form-control" placeholder="Поиск по контейнерам...">
 </div>
 <table class="table table-bordered" id="containers-table">
-    <thead>
-        <tr>
-            <th>Имя контейнера</th>
-            <th>Образ</th>
-            <th>Статус</th>
-        </tr>
-    </thead>
-    <tbody id="containers-body">
-        <tr><td colspan="3">Загрузка...</td></tr>
-    </tbody>
+  <thead>
+    <tr><th>Имя</th><th>Образ</th><th>Статус</th></tr>
+  </thead>
+  <tbody>
+    {% for c in containers %}
+    <tr><td>{{ c.name }}</td><td>{{ c.image }}</td><td>{{ c.status }}</td></tr>
+    {% endfor %}
+  </tbody>
 </table>
-<!-- Chart.js CDN -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-<div class="row">
-  <div class="col-md-6 mb-4">
-    <canvas id="cpuChart"></canvas>
-  </div>
-  <div class="col-md-6 mb-4">
-    <canvas id="ramChart"></canvas>
-  </div>
-  <div class="col-md-6 mb-4">
-    <canvas id="diskChart"></canvas>
-  </div>
-  <div class="col-md-6 mb-4">
-    <canvas id="netChart"></canvas>
-  </div>
-</div>
-
 <script>
 function formatBytes(bytes) {
-    if (bytes === 0 || bytes === undefined) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  if (bytes === 0 || bytes === undefined) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
-async function updateMonitoring() {
-    try {
-        const resp = await fetch('/api/monitoring/');
-        const data = await resp.json();
-        document.getElementById('monitoring-error').innerHTML = data.error ? `<div class='alert alert-danger'>${data.error}</div>` : '';
-        // CPU, RAM, Disk
-        document.getElementById('cpu-val').textContent = data.server_stats.cpu + '%';
-        document.getElementById('ram-used').textContent = formatBytes(data.server_stats.ram_used);
-        document.getElementById('ram-total').textContent = formatBytes(data.server_stats.ram_total);
-        document.getElementById('ram-percent').textContent = data.server_stats.ram_percent;
-        document.getElementById('disk-used').textContent = formatBytes(data.server_stats.disk_used);
-        document.getElementById('disk-total').textContent = formatBytes(data.server_stats.disk_total);
-        document.getElementById('disk-percent').textContent = data.server_stats.disk_percent;
-        // CPU per core
-        let cpuCoresHtml = '';
-        if (data.server_stats.cpu_per_core && data.server_stats.cpu_per_core.length > 0) {
-            cpuCoresHtml += '<ul class="list-group">';
-            cpuCoresHtml += '<li class="list-group-item"><b>Ядра CPU:</b></li>';
-            data.server_stats.cpu_per_core.forEach((val, idx) => {
-                let barClass = 'bg-info';
-                if (val > 90) {
-                    barClass = 'bg-danger';
-                } else if (val > 70) {
-                    barClass = 'bg-warning';
-                }
-                cpuCoresHtml += `<li class="list-group-item">Ядро ${idx+1}: <div class='progress' style='height:20px;'><div class='progress-bar ${barClass}' role='progressbar' style='width: ${val}%;' aria-valuenow='${val}' aria-valuemin='0' aria-valuemax='100'>${val}%</div></div></li>`;
-            });
-            cpuCoresHtml += '</ul>';
-        }
-        document.getElementById('cpu-cores-list').innerHTML = cpuCoresHtml;
-        // Traffic
-        let tRows = '';
-        if (data.traffic_stats.length === 0) {
-            tRows = '<tr><td colspan="4">Нет данных по трафику</td></tr>';
-        } else {
-            for (const t of data.traffic_stats) {
-                tRows += `<tr><td>${t.type}</td><td>${t.name}</td><td>${t.rx || '—'}</td><td>${t.tx || '—'}</td></tr>`;
-            }
-        }
-        document.getElementById('traffic-body').innerHTML = tRows;
-        // Containers
-        let cRows = '';
-        if (data.containers.length === 0) {
-            cRows = '<tr><td colspan="3">Нет контейнеров</td></tr>';
-        } else {
-            for (const c of data.containers) {
-                cRows += `<tr><td>${c.name}</td><td>${c.image}</td><td>${c.status}</td></tr>`;
-            }
-        }
-        document.getElementById('containers-body').innerHTML = cRows;
-        // RAM bar
-        let ramBar = document.getElementById('ram-bar');
-        ramBar.style.width = data.server_stats.ram_percent + '%';
-        ramBar.setAttribute('aria-valuenow', data.server_stats.ram_percent);
-        ramBar.textContent = data.server_stats.ram_percent + '%';
-        ramBar.classList.remove('bg-info', 'bg-warning', 'bg-danger');
-        if (data.server_stats.ram_percent > 90) {
-            ramBar.classList.add('bg-danger');
-        } else if (data.server_stats.ram_percent > 50) {
-            ramBar.classList.add('bg-warning');
-        } else {
-            ramBar.classList.add('bg-info');
-        }
-        // Disk bar
-        let diskBar = document.getElementById('disk-bar');
-        diskBar.style.width = data.server_stats.disk_percent + '%';
-        diskBar.setAttribute('aria-valuenow', data.server_stats.disk_percent);
-        diskBar.textContent = data.server_stats.disk_percent + '%';
-        diskBar.classList.remove('bg-warning', 'bg-danger', 'bg-info');
-        if (data.server_stats.disk_percent > 90) {
-            diskBar.classList.add('bg-danger');
-        } else if (data.server_stats.disk_percent > 50) {
-            diskBar.classList.add('bg-warning');
-        } else {
-            diskBar.classList.add('bg-info');
-        }
-    } catch (e) {
-        document.getElementById('monitoring-error').innerHTML = `<div class='alert alert-danger'>Ошибка обновления: ${e}</div>`;
-    }
-}
-let cpuChart, ramChart, diskChart, netChart;
-
-function createChart(ctx, label, color) {
-  return new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [{
-        label: label,
-        data: [],
-        borderColor: color,
-        backgroundColor: color + '33',
-        fill: true,
-        tension: 0.2,
-      }]
-    },
-    options: {
-      scales: { x: { display: false }, y: { min: 0, max: 100 } },
-      plugins: { legend: { display: false } }
-    }
-  });
-}
-
-function updateCharts(history) {
-  const labels = history.map(x => new Date(x.timestamp * 1000).toLocaleTimeString());
-  cpuChart.data.labels = labels;
-  cpuChart.data.datasets[0].data = history.map(x => x.cpu);
-  cpuChart.update();
-  ramChart.data.labels = labels;
-  ramChart.data.datasets[0].data = history.map(x => x.ram);
-  ramChart.update();
-  diskChart.data.labels = labels;
-  diskChart.data.datasets[0].data = history.map(x => x.disk);
-  diskChart.update();
-  // Трафик — в мегабайтах, относительный прирост
-  let net = history.map((x, i, arr) => i === 0 ? 0 : (x.net - arr[0].net) / 1024 / 1024);
-  netChart.data.labels = labels;
-  netChart.data.datasets[0].data = net;
-  netChart.update();
-}
-
-function fetchMetrics() {
-  fetch('/api/metrics_history/')
+let lastNet = 0;
+function updateMonitoring() {
+  fetch('/api/monitoring/')
     .then(r => r.json())
-    .then(data => updateCharts(data.history));
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-  cpuChart = createChart(document.getElementById('cpuChart'), 'CPU %', 'rgba(54,162,235,1)');
-  ramChart = createChart(document.getElementById('ramChart'), 'RAM %', 'rgba(255,206,86,1)');
-  diskChart = createChart(document.getElementById('diskChart'), 'Disk %', 'rgba(255,99,132,1)');
-  netChart = createChart(document.getElementById('netChart'), 'Net MB', 'rgba(75,192,192,1)');
-  fetchMetrics();
-  setInterval(fetchMetrics, 3000);
-});
-
-setInterval(updateMonitoring, 3000);
-updateMonitoring();
-
-if (document.getElementById('containerSearch')) {
-  document.getElementById('containerSearch').addEventListener('input', function() {
-    const val = this.value.toLowerCase();
-    document.querySelectorAll('#containers-table tbody tr').forEach(tr => {
-      tr.style.display = tr.innerText.toLowerCase().includes(val) ? '' : 'none';
+    .then(data => {
+      // CPU
+      let cpu = data.server_stats.cpu;
+      let cpuBar = document.getElementById('cpu-bar');
+      cpuBar.style.width = cpu + '%';
+      cpuBar.setAttribute('aria-valuenow', cpu);
+      cpuBar.textContent = cpu + '%';
+      cpuBar.classList.remove('bg-success', 'bg-warning', 'bg-danger');
+      if (cpu > 90) cpuBar.classList.add('bg-danger');
+      else if (cpu > 70) cpuBar.classList.add('bg-warning');
+      else cpuBar.classList.add('bg-success');
+      // RAM
+      let ram = data.server_stats.ram_percent;
+      let ramBar = document.getElementById('ram-bar');
+      ramBar.style.width = ram + '%';
+      ramBar.setAttribute('aria-valuenow', ram);
+      ramBar.textContent = ram + '%';
+      ramBar.classList.remove('bg-info', 'bg-warning', 'bg-danger');
+      if (ram > 90) ramBar.classList.add('bg-danger');
+      else if (ram > 70) ramBar.classList.add('bg-warning');
+      else ramBar.classList.add('bg-info');
+      // Disk
+      let disk = data.server_stats.disk_percent;
+      let diskBar = document.getElementById('disk-bar');
+      diskBar.style.width = disk + '%';
+      diskBar.setAttribute('aria-valuenow', disk);
+      diskBar.textContent = disk + '%';
+      diskBar.classList.remove('bg-warning', 'bg-danger', 'bg-info');
+      if (disk > 90) diskBar.classList.add('bg-danger');
+      else if (disk > 70) diskBar.classList.add('bg-warning');
+      else diskBar.classList.add('bg-info');
+      // Net (MB/s)
+      let net = data.server_stats.net;
+      let netBar = document.getElementById('net-bar');
+      let netSpeed = 0;
+      if (lastNet > 0) {
+        netSpeed = (net - lastNet) / 1024 / 1024 / 3; // MB/s, 3s интервал
+      }
+      lastNet = net;
+      netBar.style.width = Math.min(netSpeed * 10, 100) + '%';
+      netBar.setAttribute('aria-valuenow', netSpeed);
+      netBar.textContent = netSpeed.toFixed(2) + ' МБ/c';
     });
-  });
 }
+document.addEventListener('DOMContentLoaded', function() {
+  updateMonitoring();
+  setInterval(updateMonitoring, 3000);
+  if (document.getElementById('containerSearch')) {
+    document.getElementById('containerSearch').addEventListener('input', function() {
+      const val = this.value.toLowerCase();
+      document.querySelectorAll('#containers-table tbody tr').forEach(tr => {
+        tr.style.display = tr.innerText.toLowerCase().includes(val) ? '' : 'none';
+      });
+    });
+  }
+});
 </script>
 {% endblock %} 
