@@ -11,43 +11,41 @@
 ### 1. Клонирование и подготовка
 ```bash
 git clone <URL-ВАШЕГО-РЕПОЗИТОРИЯ>
-cd amnezia_admin_panel
+cd <имя_каталога>
 python3.12 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install --break-system-packages -r requirements.txt
 ```
 
 ### 2. Настройка переменных окружения
-Создайте файл `.env` или экспортируйте переменные:
+Создайте файл `.env` в корне проекта:
 ```
 DJANGO_SECRET_KEY=your-very-secret-key
 DJANGO_DEBUG=False
 ```
 
-Можно использовать [python-dotenv](https://pypi.org/project/python-dotenv/) для автозагрузки .env.
-
 ### 3. Миграции и суперпользователь
 ```bash
-python manage.py migrate
-python manage.py createsuperuser
+python3.12 manage.py migrate
+python3.12 manage.py createsuperuser
 ```
 
-### 4. Сборка статики (если нужно)
+### 4. Сборка статики (production)
 ```bash
-python manage.py collectstatic
+python3.12 manage.py collectstatic
 ```
 
 ### 5. Запуск через Gunicorn (production)
 ```bash
 source venv/bin/activate
-gunicorn --bind 0.0.0.0:8000 amnezia_admin_core.wsgi:application
+venv/bin/gunicorn --bind 0.0.0.0:8000 amnezia_admin_core.wsgi:application
 ```
 
 ---
 
 ## Автоматический запуск через systemd
 
-Создайте файл `/etc/systemd/system/amnezia_admin_panel.service`:
+Пример файла `/etc/systemd/system/amnezia_admin_panel.service`:
 ```
 [Unit]
 Description=Amnezia Admin Panel (Gunicorn)
@@ -56,39 +54,62 @@ After=network.target
 [Service]
 User=www-data
 Group=www-data
-WorkingDirectory=/opt/amnezia_admin_panel
-Environment="DJANGO_SECRET_KEY=your-very-secret-key"
-Environment="DJANGO_DEBUG=False"
-ExecStart=/opt/amnezia_admin_panel/venv/bin/gunicorn --workers 3 --bind 0.0.0.0:8000 amnezia_admin_core.wsgi:application
+WorkingDirectory=/opt
+EnvironmentFile=/opt/.env
+ExecStart=/opt/venv/bin/gunicorn --workers 3 --bind 0.0.0.0:8000 amnezia_admin_core.wsgi:application
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Перезапустите и включите сервис:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable amnezia_admin_panel
-sudo systemctl start amnezia_admin_panel
+---
+
+## Nginx (production)
+
+Пример конфига `/etc/nginx/sites-available/amnezia_admin_panel`:
+```
+server {
+    listen 80;
+    server_name <ваш_IP>;
+
+    location = /favicon.ico { access_log off; log_not_found off; }
+    location /static/ {
+        alias /opt/staticfiles/;
+    }
+
+    location / {
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://127.0.0.1:8000;
+    }
+
+    client_max_body_size 20M;
+    access_log /var/log/nginx/amnezia_admin_panel_access.log;
+    error_log /var/log/nginx/amnezia_admin_panel_error.log;
+}
 ```
 
 ---
 
-## Безопасность
-- **SECRET_KEY** и **DEBUG** не должны храниться в git! Используйте переменные окружения.
-- **db.sqlite3**, **venv/**, приватные ключи и пароли не должны попадать в репозиторий (см. .gitignore).
-- Для production используйте HTTPS и настройте ALLOWED_HOSTS.
+## Безопасность и open source
+- **В репозитории нет приватных данных**: .env, db.sqlite3, venv, staticfiles/ и другие временные/секретные файлы исключены через .gitignore.
+- **SECRET_KEY и DEBUG** задаются только через переменные окружения.
+- **Права доступа**: для работы с Docker пользователь www-data добавлен в группу docker.
+- **Проверено**: нет лишних файлов, старых проектов, node.js, TypeScript, приватных ключей и т.д.
+- **Готов к публикации на GitHub/Open Source**.
 
 ---
 
 ## FAQ
 - **Миграции:**
-    - `python manage.py makemigrations` — создать миграции
-    - `python manage.py migrate` — применить миграции
+    - `python3.12 manage.py makemigrations` — создать миграции
+    - `python3.12 manage.py migrate` — применить миграции
 - **Суперпользователь:**
-    - `python manage.py createsuperuser`
+    - `python3.12 manage.py createsuperuser`
 - **Статика:**
-    - `python manage.py collectstatic`
+    - `python3.12 manage.py collectstatic`
 - **Логи:**
     - Смотрите systemd: `journalctl -u amnezia_admin_panel -f`
 
@@ -99,8 +120,10 @@ sudo systemctl start amnezia_admin_panel
 - `adminpanel/` — основное приложение
 - `templates/`, `static/` — шаблоны и статика
 - `manage.py` — точка входа
+- `.gitignore` — исключает все лишние и приватные файлы
 
 ---
 
 ## Контакты и поддержка
-- Issues: только через гитхаб
+- Issues: создавайте на GitHub
+- Email: <ваш email>
