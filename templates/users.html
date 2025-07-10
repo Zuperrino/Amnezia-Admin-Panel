@@ -1,7 +1,11 @@
 {% extends 'base.html' %}
 {% block title %}Пользователи{% endblock %}
 {% block content %}
-<h2>Пользователи</h2>
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Пользователи</h2>
+        <a href="{% url 'add_user' %}" class="btn btn-success">Добавить пользователя</a>
+    </div>
 <div class="mb-3">
   <input type="text" id="userSearch" class="form-control" placeholder="Поиск по имени пользователя...">
 </div>
@@ -14,6 +18,7 @@
       <th>Allowed IPs / Flow</th>
       <th>RX</th>
       <th>TX</th>
+      <th>Действия</th>
     </tr>
   </thead>
   <tbody>
@@ -25,6 +30,20 @@
       <td>{{ user.allowed_ips }}</td>
       <td>{{ user.rx }}</td>
       <td>{{ user.tx }}</td>
+      <td>
+        <form method="post" action="{% url 'delete_user' %}" style="display:inline;">
+          {% csrf_token %}
+          <input type="hidden" name="name" value="{{ user.name }}">
+          <input type="hidden" name="proto" value="{{ user.type }}">
+          <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Удалить пользователя {{ user.name }}?');">Удалить</button>
+        </form>
+        <form method="post" action="{% url 'deactivate_user' %}" style="display:inline;">
+          {% csrf_token %}
+          <input type="hidden" name="name" value="{{ user.name }}">
+          <input type="hidden" name="proto" value="{{ user.type }}">
+          <button type="submit" class="btn btn-warning btn-sm">Деактивировать</button>
+        </form>
+      </td>
     </tr>
     {% endfor %}
   </tbody>

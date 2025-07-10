@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block content %}
+<div class="container mt-4">
+    <h2>Добавить пользователя</h2>
+    {% if messages %}
+      {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+    <form method="post">
+        {% csrf_token %}
+        <div class="mb-3">
+            <label for="name" class="form-label">Имя пользователя</label>
+            <input type="text" class="form-control" id="name" name="name" required>
+        </div>
+        <div class="mb-3">
+            <label for="proto" class="form-label">Протокол</label>
+            <select class="form-select" id="proto" name="proto" required>
+                <option value="">Выберите протокол</option>
+                <option value="WireGuard">WireGuard</option>
+                <option value="AmneziaWG">AmneziaWG</option>
+                <option value="XRay">XRay</option>
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary">Создать</button>
+        <a href="{% url 'users' %}" class="btn btn-secondary">Отмена</a>
+    </form>
+</div>
+{% endblock %} 

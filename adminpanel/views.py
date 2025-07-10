@@ -11,6 +11,11 @@ import threading
 import time
 from django.utils import translation
 from django.conf import settings
+from django.views.decorators.csrf import csrf_protect
+from django.contrib import messages
+import tempfile
+import uuid
+from django.views.decorators.http import require_POST
 
 # Create your views here.
 
@@ -425,6 +430,362 @@ def server_control(request):
 def notifications(request):
     return render(request, 'notifications.html')
 
+@csrf_protect
+@login_required
+def add_user(request):
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        proto = request.POST.get('proto', '').strip()
+        if not name or proto not in ['WireGuard', 'AmneziaWG', 'XRay']:
+            messages.error(request, 'Заполните все поля и выберите протокол.')
+            return render(request, 'add_user.html')
+        try:
+            if proto == 'WireGuard':
+                result = generate_wg_user(name)
+            elif proto == 'AmneziaWG':
+                result = generate_awg_user(name)
+            elif proto == 'XRay':
+                result = generate_xray_user(name)
+            messages.success(request, f'Пользователь {name} ({proto}) успешно создан!')
+            return redirect('users')
+        except Exception as e:
+            messages.error(request, f'Ошибка: {e}')
+            return render(request, 'add_user.html')
+    return render(request, 'add_user.html')
+
+def generate_wg_user(name):
+    import subprocess, json, os
+    # 1. Получить имя контейнера
+    result = subprocess.run([
+        'docker', 'ps', '--format', '{{.Names}}|{{.Image}}'
+    ], capture_output=True, text=True, check=True)
+    wg_container = None
+    for line in result.stdout.strip().split('\n'):
+        if 'wireguard' in line.lower():
+            wg_container = line.split('|')[0]
+            break
+    if not wg_container:
+        raise Exception('WireGuard контейнер не найден')
+    # 2. Генерация ключей внутри контейнера
+    private_key = subprocess.check_output([
+        'docker', 'exec', wg_container, 'wg', 'genkey'
+    ]).decode().strip()
+    public_key = subprocess.check_output([
+        'docker', 'exec', '-i', wg_container, 'sh', '-c', f'echo "{private_key}" | wg pubkey'
+    ]).decode().strip()
+    # 3. AllowedIPs по умолчанию
+    import uuid
+    allowed_ips = f"10.8.0.{100 + int(uuid.uuid4().int % 100)}/32"
+    # 4. Прочитать wg0.conf
+    conf = subprocess.check_output([
+        'docker', 'exec', wg_container, 'cat', '/opt/amnezia/wireguard/wg0.conf'
+    ]).decode()
+    # 5. Добавить секцию [Peer]
+    peer_conf = f"\n[Peer]\n# {name}\nPublicKey = {public_key}\nAllowedIPs = {allowed_ips}\n"
+    new_conf = conf.strip() + peer_conf
+    # 6. Записать новый wg0.conf (через временный файл и docker cp)
+    import tempfile
+    with tempfile.NamedTemporaryFile('w', delete=False) as tmp:
+        tmp.write(new_conf)
+        tmp_path = tmp.name
+    subprocess.check_call(['docker', 'cp', tmp_path, f'{wg_container}:/opt/amnezia/wireguard/wg0.conf'])
+    os.unlink(tmp_path)
+    # 7. Прочитать clientsTable
+    clients_json = subprocess.check_output([
+        'docker', 'exec', wg_container, 'cat', '/opt/amnezia/wireguard/clientsTable'
+    ]).decode()
+    try:
+        clients = json.loads(clients_json)
+    except Exception:
+        clients = []
+    # 8. Добавить пользователя в clientsTable
+    client_id = public_key
+    clients.append({
+        'clientId': client_id,
+        'userData': {
+            'clientName': name,
+            'dataReceived': 0,
+            'dataSent': 0
+        }
+    })
+    # 9. Записать clientsTable
+    with tempfile.NamedTemporaryFile('w', delete=False) as tmp:
+        json.dump(clients, tmp, ensure_ascii=False)
+        tmp_path = tmp.name
+    subprocess.check_call(['docker', 'cp', tmp_path, f'{wg_container}:/opt/amnezia/wireguard/clientsTable'])
+    os.unlink(tmp_path)
+    # 10. (Опционально) Перезапустить контейнер или отправить сигнал
+    # subprocess.run(['docker', 'restart', wg_container])
+    return True
+
+def generate_awg_user(name):
+    import subprocess, json, os, uuid, tempfile
+    # 1. Получить имя контейнера
+    result = subprocess.run([
+        'docker', 'ps', '--format', '{{.Names}}|{{.Image}}'
+    ], capture_output=True, text=True, check=True)
+    awg_container = None
+    for line in result.stdout.strip().split('\n'):
+        if 'awg' in line.lower():
+            awg_container = line.split('|')[0]
+            break
+    if not awg_container:
+        raise Exception('AmneziaWG контейнер не найден')
+    # 2. Генерация ключей внутри контейнера
+    private_key = subprocess.check_output([
+        'docker', 'exec', awg_container, 'wg', 'genkey'
+    ]).decode().strip()
+    public_key = subprocess.check_output([
+        'docker', 'exec', '-i', awg_container, 'sh', '-c', f'echo "{private_key}" | wg pubkey'
+    ]).decode().strip()
+    allowed_ips = f"10.9.0.{100 + int(uuid.uuid4().int % 100)}/32"
+    # 3. Прочитать wg0.conf
+    conf = subprocess.check_output([
+        'docker', 'exec', awg_container, 'cat', '/opt/amnezia/awg/wg0.conf'
+    ]).decode()
+    peer_conf = f"\n[Peer]\n# {name}\nPublicKey = {public_key}\nAllowedIPs = {allowed_ips}\n"
+    new_conf = conf.strip() + peer_conf
+    with tempfile.NamedTemporaryFile('w', delete=False) as tmp:
+        tmp.write(new_conf)
+        tmp_path = tmp.name
+    subprocess.check_call(['docker', 'cp', tmp_path, f'{awg_container}:/opt/amnezia/awg/wg0.conf'])
+    os.unlink(tmp_path)
+    # 4. Прочитать clientsTable
+    clients_json = subprocess.check_output([
+        'docker', 'exec', awg_container, 'cat', '/opt/amnezia/awg/clientsTable'
+    ]).decode()
+    try:
+        clients = json.loads(clients_json)
+    except Exception:
+        clients = []
+    client_id = public_key
+    clients.append({
+        'clientId': client_id,
+        'userData': {
+            'clientName': name,
+            'dataReceived': 0,
+            'dataSent': 0
+        }
+    })
+    with tempfile.NamedTemporaryFile('w', delete=False) as tmp:
+        json.dump(clients, tmp, ensure_ascii=False)
+        tmp_path = tmp.name
+    subprocess.check_call(['docker', 'cp', tmp_path, f'{awg_container}:/opt/amnezia/awg/clientsTable'])
+    os.unlink(tmp_path)
+    return True
+
+def generate_xray_user(name):
+    import subprocess, json, os, uuid, tempfile
+    # 1. Получить имя контейнера
+    result = subprocess.run([
+        'docker', 'ps', '--format', '{{.Names}}|{{.Image}}'
+    ], capture_output=True, text=True, check=True)
+    xray_container = None
+    for line in result.stdout.strip().split('\n'):
+        if 'xray' in line.lower():
+            xray_container = line.split('|')[0]
+            break
+    if not xray_container:
+        raise Exception('XRay контейнер не найден')
+    # 2. Генерация UUID
+    client_id = str(uuid.uuid4())
+    # 3. Прочитать server.json
+    server_json = subprocess.check_output([
+        'docker', 'exec', xray_container, 'cat', '/opt/amnezia/xray/server.json'
+    ]).decode()
+    data = json.loads(server_json)
+    # 4. Добавить клиента в первый inbound
+    if data.get('inbounds'):
+        clients = data['inbounds'][0]['settings']['clients']
+        clients.append({
+            'id': client_id,
+            'email': name,
+            'flow': '',
+        })
+    else:
+        raise Exception('Некорректный server.json (нет inbounds)')
+    with tempfile.NamedTemporaryFile('w', delete=False) as tmp:
+        json.dump(data, tmp, ensure_ascii=False)
+        tmp_path = tmp.name
+    subprocess.check_call(['docker', 'cp', tmp_path, f'{xray_container}:/opt/amnezia/xray/server.json'])
+    os.unlink(tmp_path)
+    # 5. Прочитать clientsTable
+    clients_json = subprocess.check_output([
+        'docker', 'exec', xray_container, 'cat', '/opt/amnezia/xray/clientsTable'
+    ]).decode()
+    try:
+        clients_table = json.loads(clients_json)
+    except Exception:
+        clients_table = []
+    clients_table.append({
+        'clientId': client_id,
+        'userData': {
+            'clientName': name,
+            'dataReceived': 0,
+            'dataSent': 0
+        }
+    })
+    with tempfile.NamedTemporaryFile('w', delete=False) as tmp:
+        json.dump(clients_table, tmp, ensure_ascii=False)
+        tmp_path = tmp.name
+    subprocess.check_call(['docker', 'cp', tmp_path, f'{xray_container}:/opt/amnezia/xray/clientsTable'])
+    os.unlink(tmp_path)
+    return True
+
+# Удаление пользователя (по имени и протоколу)
+def delete_user(name, proto):
+    import subprocess, json, os, tempfile
+    # Получить имя контейнера
+    result = subprocess.run([
+        'docker', 'ps', '--format', '{{.Names}}|{{.Image}}'
+    ], capture_output=True, text=True, check=True)
+    container = None
+    proto_dir = None
+    if proto == 'WireGuard':
+        for line in result.stdout.strip().split('\n'):
+            if 'wireguard' in line.lower():
+                container = line.split('|')[0]
+                proto_dir = '/opt/amnezia/wireguard'
+                break
+    elif proto == 'AmneziaWG':
+        for line in result.stdout.strip().split('\n'):
+            if 'awg' in line.lower():
+                container = line.split('|')[0]
+                proto_dir = '/opt/amnezia/awg'
+                break
+    elif proto == 'XRay':
+        for line in result.stdout.strip().split('\n'):
+            if 'xray' in line.lower():
+                container = line.split('|')[0]
+                proto_dir = '/opt/amnezia/xray'
+                break
+    if not container:
+        raise Exception(f'Контейнер {proto} не найден')
+    # Удаление из конфигов
+    if proto in ['WireGuard', 'AmneziaWG']:
+        conf = subprocess.check_output([
+            'docker', 'exec', container, 'cat', f'{proto_dir}/wg0.conf'
+        ]).decode()
+        # Удалить секцию [Peer] с нужным именем
+        peers = conf.split('[Peer]')
+        new_conf = peers[0]
+        for peer in peers[1:]:
+            if f'# {name}' not in peer:
+                new_conf += '[Peer]' + peer
+        with tempfile.NamedTemporaryFile('w', delete=False) as tmp:
+            tmp.write(new_conf.strip())
+            tmp_path = tmp.name
+        subprocess.check_call(['docker', 'cp', tmp_path, f'{container}:{proto_dir}/wg0.conf'])
+        os.unlink(tmp_path)
+    elif proto == 'XRay':
+        server_json = subprocess.check_output([
+            'docker', 'exec', container, 'cat', f'{proto_dir}/server.json'
+        ]).decode()
+        data = json.loads(server_json)
+        if data.get('inbounds'):
+            clients = data['inbounds'][0]['settings']['clients']
+            data['inbounds'][0]['settings']['clients'] = [c for c in clients if c.get('email') != name]
+        with tempfile.NamedTemporaryFile('w', delete=False) as tmp:
+            json.dump(data, tmp, ensure_ascii=False)
+            tmp_path = tmp.name
+        subprocess.check_call(['docker', 'cp', tmp_path, f'{container}:{proto_dir}/server.json'])
+        os.unlink(tmp_path)
+    # Удаление из clientsTable
+    clients_json = subprocess.check_output([
+        'docker', 'exec', container, 'cat', f'{proto_dir}/clientsTable'
+    ]).decode()
+    try:
+        clients = json.loads(clients_json)
+    except Exception:
+        clients = []
+    clients = [c for c in clients if c['userData'].get('clientName') != name]
+    with tempfile.NamedTemporaryFile('w', delete=False) as tmp:
+        json.dump(clients, tmp, ensure_ascii=False)
+        tmp_path = tmp.name
+    subprocess.check_call(['docker', 'cp', tmp_path, f'{container}:{proto_dir}/clientsTable'])
+    os.unlink(tmp_path)
+    return True
+
+# Деактивация пользователя (по имени и протоколу)
+def deactivate_user(name, proto):
+    import subprocess, json, os, tempfile
+    # Получить имя контейнера
+    result = subprocess.run([
+        'docker', 'ps', '--format', '{{.Names}}|{{.Image}}'
+    ], capture_output=True, text=True, check=True)
+    container = None
+    proto_dir = None
+    if proto == 'WireGuard':
+        for line in result.stdout.strip().split('\n'):
+            if 'wireguard' in line.lower():
+                container = line.split('|')[0]
+                proto_dir = '/opt/amnezia/wireguard'
+                break
+    elif proto == 'AmneziaWG':
+        for line in result.stdout.strip().split('\n'):
+            if 'awg' in line.lower():
+                container = line.split('|')[0]
+                proto_dir = '/opt/amnezia/awg'
+                break
+    elif proto == 'XRay':
+        for line in result.stdout.strip().split('\n'):
+            if 'xray' in line.lower():
+                container = line.split('|')[0]
+                proto_dir = '/opt/amnezia/xray'
+                break
+    if not container:
+        raise Exception(f'Контейнер {proto} не найден')
+    # Деактивация в конфиге
+    if proto in ['WireGuard', 'AmneziaWG']:
+        conf = subprocess.check_output([
+            'docker', 'exec', container, 'cat', f'{proto_dir}/wg0.conf'
+        ]).decode()
+        peers = conf.split('[Peer]')
+        new_conf = peers[0]
+        for peer in peers[1:]:
+            if f'# {name}' in peer:
+                # Комментируем строки секции
+                peer_lines = ['#DEACTIVATED ' + l if l.strip() and not l.strip().startswith('#') else l for l in peer.splitlines(True)]
+                new_conf += '[Peer]' + ''.join(peer_lines)
+            else:
+                new_conf += '[Peer]' + peer
+        with tempfile.NamedTemporaryFile('w', delete=False) as tmp:
+            tmp.write(new_conf.strip())
+            tmp_path = tmp.name
+        subprocess.check_call(['docker', 'cp', tmp_path, f'{container}:{proto_dir}/wg0.conf'])
+        os.unlink(tmp_path)
+    elif proto == 'XRay':
+        server_json = subprocess.check_output([
+            'docker', 'exec', container, 'cat', f'{proto_dir}/server.json'
+        ]).decode()
+        data = json.loads(server_json)
+        if data.get('inbounds'):
+            for c in data['inbounds'][0]['settings']['clients']:
+                if c.get('email') == name:
+                    c['disabled'] = True
+        with tempfile.NamedTemporaryFile('w', delete=False) as tmp:
+            json.dump(data, tmp, ensure_ascii=False)
+            tmp_path = tmp.name
+        subprocess.check_call(['docker', 'cp', tmp_path, f'{container}:{proto_dir}/server.json'])
+        os.unlink(tmp_path)
+    # Деактивация в clientsTable (добавляем поле disabled)
+    clients_json = subprocess.check_output([
+        'docker', 'exec', container, 'cat', f'{proto_dir}/clientsTable'
+    ]).decode()
+    try:
+        clients = json.loads(clients_json)
+    except Exception:
+        clients = []
+    for c in clients:
+        if c['userData'].get('clientName') == name:
+            c['userData']['disabled'] = True
+    with tempfile.NamedTemporaryFile('w', delete=False) as tmp:
+        json.dump(clients, tmp, ensure_ascii=False)
+        tmp_path = tmp.name
+    subprocess.check_call(['docker', 'cp', tmp_path, f'{container}:{proto_dir}/clientsTable'])
+    os.unlink(tmp_path)
+    return True
+
 # История метрик (храним последние 60 точек, ~3-5 минут)
 METRICS_HISTORY = deque(maxlen=60)
 METRICS_LOCK = threading.Lock()
@@ -483,3 +844,27 @@ def events_history_api(request):
     with EVENTS_LOCK:
         events = list(EVENTS_HISTORY)
     return JsonResponse({'events': events})
+
+@require_POST
+@login_required
+def delete_user_view(request):
+    name = request.POST.get('name')
+    proto = request.POST.get('proto')
+    try:
+        delete_user(name, proto)
+        messages.success(request, f'Пользователь {name} ({proto}) удалён.')
+    except Exception as e:
+        messages.error(request, f'Ошибка удаления: {e}')
+    return redirect('users')
+
+@require_POST
+@login_required
+def deactivate_user_view(request):
+    name = request.POST.get('name')
+    proto = request.POST.get('proto')
+    try:
+        deactivate_user(name, proto)
+        messages.success(request, f'Пользователь {name} ({proto}) временно деактивирован.')
+    except Exception as e:
+        messages.error(request, f'Ошибка деактивации: {e}')
+    return redirect('users')
