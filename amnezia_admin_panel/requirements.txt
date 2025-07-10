@@ -1,0 +1,7 @@
+# Для работы используйте Python 3.12+
+# Установите зависимости командой:
+# python3.12 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
+asgiref==3.9.1
+Django==5.2.4
+psutil==7.0.0
+sqlparse==0.5.3
