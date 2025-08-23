@@ -1,8 +1,9 @@
-# Amnezia Admin Panel
+# Веб-панель для управления сервером с AmneziaVPN
 
 ## Описание
 
 Веб-панель для мониторинга и управления VPN-клиентами (WireGuard, AmneziaWG, XRay и др.), с автообновлением статистики, отображением пользователей, мониторингом ресурсов и топ-процессов.
+Панель создавалась для собственного пользования, приведена к конечному виду, но при востребованности могу внести доработки.
 
 ---
 
@@ -10,8 +11,8 @@
 
 ### 1. Клонирование и подготовка
 ```bash
-git clone <URL-ВАШЕГО-РЕПОЗИТОРИЯ>
-cd <имя_каталога>
+git clone https://github.com/Zuperrino/Amnezia-Admin-Panel
+cd amnezia-admin-panel
 python3.12 -m venv venv
 source venv/bin/activate
 pip install --break-system-packages -r requirements.txt
@@ -126,4 +127,4 @@ server {
 
 ## Контакты и поддержка
 - Issues: создавайте на GitHub
-- Email: <ваш email>
+- Telegram: @vasiliv
